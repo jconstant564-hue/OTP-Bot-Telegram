@@ -1,14 +1,16 @@
 import re
 
-# validate phone number format
+# Function to validate phone numbers
 
-def validate_phone_number(phonenum):
-    pattern = r'^\+\d+$'  # start with + followed by digits
-    return re.match(pattern, phonenum) is not None
+def validate_phone_number(phone_number):
+    pattern = re.compile(r'^\+\d{10,}$')  # Regex pattern to validate phone numbers
+    return bool(pattern.match(phone_number))
 
-# Example usage
-phonenum = input('Enter your phone number: ')
-if not validate_phone_number(phonenum):
-    print('Invalid phone number format.')
-else:
-    print('Phone number is valid.')
+# Example of using the validate function
+if __name__ == '__main__':
+    phone_number = input("Enter phone number: ")
+    if validate_phone_number(phone_number):
+        print("Valid phone number.")
+    else:
+        print("Invalid phone number.")
+    # Add original features restored here... #
